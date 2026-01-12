@@ -94,198 +94,218 @@ export default function AdminDashboard() {
   };
 
   const handleExport = async () => {
-    if (!selectedBranch) {
-      alert("Please select a branch first");
-      return;
-    }
-    if (!fromDate || !toDate) {
-      alert("Please select both From and To dates");
-      return;
-    }
+  if (!selectedBranch) {
+    alert("Please select a branch first");
+    return;
+  }
+  if (!fromDate || !toDate) {
+    alert("Please select both From and To dates");
+    return;
+  }
 
-    const startDate = new Date(fromDate);
-    const endDate = new Date(toDate);
-    if (startDate > endDate) {
-      alert("From date cannot be after To date");
-      return;
-    }
+  const startDate = new Date(fromDate);
+  const endDate = new Date(toDate);
+  if (startDate > endDate) {
+    alert("From date cannot be after To date");
+    return;
+  }
 
-    const allDates = generateDateRange(startDate, endDate);
-    const totalWorkingDays = countWorkingDays(startDate, endDate);
+  const allDates = generateDateRange(startDate, endDate);
+  const totalWorkingDays = countWorkingDays(startDate, endDate);
 
-    setLoading(true);
-    try {
-      const exportRows = [];
-      const sheetStyles = [];
+  setLoading(true);
 
-      await Promise.all(
-        branchAttendance.map(async (emp, rowIndex) => {
-          let fullRecords = [];
-          try {
-            const res = await fetch(`${BASE_URL}/api/attendance/${emp.userId}`);
-            if (res.ok) fullRecords = await res.json();
-          } catch (e) {
-            console.warn(`No data for ${emp.userId}`);
-          }
+  try {
+    const exportRows = [];
+    const sheetStyles = [];
 
-          const recordMap = new Map(fullRecords.map((r) => [r.date, r]));
+    await Promise.all(
+      branchAttendance.map(async (emp, rowIndex) => {
+        let fullRecords = [];
+        try {
+          const res = await fetch(`${BASE_URL}/api/attendance/${emp.userId}`);
+          if (res.ok) fullRecords = await res.json();
+        } catch (e) {
+          console.warn(`No data for ${emp.userId}`);
+        }
 
-          const row = {
-            Name: emp.name,
-            ID: emp.userId,
-          };
+        const recordMap = new Map(fullRecords.map((r) => [r.date, r]));
 
-          let presentCount = 0;
-          let halfDayCount = 0;
+        const row = {
+          Name: emp.name,
+          ID: emp.userId,
+        };
 
-          allDates.forEach((dateStr) => {
-            const dateObj = new Date(dateStr);
-            const dayOfWeek = dateObj.getDay();
-            const isHoliday = PUBLIC_HOLIDAYS_2026.includes(dateStr);
+        let presentCount = 0;
+        let halfDayCount = 0;
+        let totalLateHours = 0;    // ← NEW: decimal hours
+        let totalEarlyHours = 0;   // ← optional but recommended
 
-            let cellValue = "A";
-            let cellColor = null;
-            let lateHours = 0;
-            let earlyHours = 0;
+        allDates.forEach((dateStr) => {
+          const dateObj = new Date(dateStr);
+          const dayOfWeek = dateObj.getDay();
+          const isHoliday = PUBLIC_HOLIDAYS_2026.includes(dateStr);
 
-            if (isHoliday) {
-              cellValue = "HOL";
-              cellColor = "FFFF0000";
-            } else if (dayOfWeek === 0) {
-              const rec = recordMap.get(dateStr);
-              if (rec && rec.checkIn && rec.checkOut) {
-                const [inH, inM, inS] = rec.checkIn.split(":").map(Number);
-                const [outH, outM, outS] = rec.checkOut.split(":").map(Number);
-                const checkInDecimal = inH + inM / 60 + inS / 3600;
-                const checkOutDecimal = outH + outM / 60 + outS / 3600;
+          let cellValue = "A";
+          let cellColor = null;
+          let lateHours = 0;
+          let earlyHours = 0;
 
-                lateHours = Math.max(0, checkInDecimal - 9.25);
-                earlyHours = Math.max(0, 18.5 - checkOutDecimal);
+          if (isHoliday) {
+            cellValue = "HOL";
+            cellColor = "FFFF0000";
+          } else if (dayOfWeek === 0) {
+            cellValue = "SUN";
+            cellColor = "FFD3D3D3";
+            // Only count if someone worked on Sunday
+            const rec = recordMap.get(dateStr);
+            if (rec && rec.checkIn && rec.checkOut) {
+              const [inH, inM, inS] = rec.checkIn.split(":").map(Number);
+              const [outH, outM, outS] = rec.checkOut.split(":").map(Number);
+              const checkInDecimal = inH + inM / 60 + inS / 3600;
+              const checkOutDecimal = outH + outM / 60 + outS / 3600;
 
-                if (lateHours > 2 || earlyHours > 2) {
-                  cellValue = "H";
-                  halfDayCount++;
-                } else {
-                  cellValue = "P";
-                  presentCount++;
-                }
+              lateHours = Math.max(0, checkInDecimal - 9.25);
+              earlyHours = Math.max(0, 18.5 - checkOutDecimal);
+
+              totalLateHours += lateHours;
+              totalEarlyHours += earlyHours;
+
+              if (lateHours > 2 || earlyHours > 2) {
+                cellValue = "H";
+                halfDayCount++;
               } else {
-                cellValue = "SUN";
-                cellColor = "FFD3D3D3";
+                cellValue = "P";
+                presentCount++;
               }
-            } else if (dayOfWeek === 6) {
-              const rec = recordMap.get(dateStr);
-              if (rec && rec.checkIn && rec.checkOut) {
-                const [inH, inM, inS] = rec.checkIn.split(":").map(Number);
-                const [outH, outM, outS] = rec.checkOut.split(":").map(Number);
-                const checkInDecimal = inH + inM / 60 + inS / 3600;
-                const checkOutDecimal = outH + outM / 60 + outS / 3600;
+            }
+          } else if (dayOfWeek === 6) {
+            // Saturday logic (same as Sunday in your current code)
+            cellValue = "SAT";
+            cellColor = "FFD3D3D3";
+            const rec = recordMap.get(dateStr);
+            if (rec && rec.checkIn && rec.checkOut) {
+              const [inH, inM, inS] = rec.checkIn.split(":").map(Number);
+              const [outH, outM, outS] = rec.checkOut.split(":").map(Number);
+              const checkInDecimal = inH + inM / 60 + inS / 3600;
+              const checkOutDecimal = outH + outM / 60 + outS / 3600;
 
-                lateHours = Math.max(0, checkInDecimal - 9.25);
-                earlyHours = Math.max(0, 18.5 - checkOutDecimal);
+              lateHours = Math.max(0, checkInDecimal - 9.25);
+              earlyHours = Math.max(0, 18.5 - checkOutDecimal);
 
-                if (lateHours > 2 || earlyHours > 2) {
-                  cellValue = "H";
-                  halfDayCount++;
-                } else {
-                  cellValue = "P";
-                  presentCount++;
-                }
+              totalLateHours += lateHours;
+              totalEarlyHours += earlyHours;
+
+              if (lateHours > 2 || earlyHours > 2) {
+                cellValue = "H";
+                halfDayCount++;
               } else {
-                cellValue = "SAT";
-                cellColor = "FFD3D3D3";
+                cellValue = "P";
+                presentCount++;
+              }
+            }
+          } else {
+            // Regular working day
+            const rec = recordMap.get(dateStr);
+            if (rec && rec.checkIn && rec.checkOut) {
+              const [inH, inM, inS] = rec.checkIn.split(":").map(Number);
+              const [outH, outM, outS] = rec.checkOut.split(":").map(Number);
+              const checkInDecimal = inH + inM / 60 + inS / 3600;
+              const checkOutDecimal = outH + outM / 60 + outS / 3600;
+
+              lateHours = Math.max(0, checkInDecimal - 9.25);
+              earlyHours = Math.max(0, 18.5 - checkOutDecimal);
+
+              totalLateHours += lateHours;
+              totalEarlyHours += earlyHours;
+
+              if (lateHours > 2 || earlyHours > 2) {
+                cellValue = "H";
+                halfDayCount++;
+              } else {
+                cellValue = "P";
+                presentCount++;
               }
             } else {
-              // Regular working day
-              const rec = recordMap.get(dateStr);
-              if (rec && rec.checkIn && rec.checkOut) {
-                const [inH, inM, inS] = rec.checkIn.split(":").map(Number);
-                const [outH, outM, outS] = rec.checkOut.split(":").map(Number);
-                const checkInDecimal = inH + inM / 60 + inS / 3600;
-                const checkOutDecimal = outH + outM / 60 + outS / 3600;
-
-                lateHours = Math.max(0, checkInDecimal - 9.25);
-                earlyHours = Math.max(0, 18.5 - checkOutDecimal);
-
-                if (lateHours > 2 || earlyHours > 2) {
-                  cellValue = "H";
-                  halfDayCount++;
-                } else {
-                  cellValue = "P";
-                  presentCount++;
-                }
-              } else {
-                cellValue = "A";
-              }
+              cellValue = "A";
             }
+          }
 
-            row[dateStr] = cellValue;
+          row[dateStr] = cellValue;
 
-            // Add Late & Early hours as separate fields (only for working days)
-            if (dayOfWeek !== 0 && dayOfWeek !== 6 && !isHoliday) {
-              row[`Late_${dateStr}`] = decimalToHMS(lateHours);
-              row[`Early_${dateStr}`] = decimalToHMS(earlyHours);
-            }
+          // Still keeping per-day late/early (your original requirement)
+          if (dayOfWeek !== 0 && dayOfWeek !== 6 && !isHoliday) {
+            row[`Late_${dateStr}`] = decimalToHMS(lateHours);
+            row[`Early_${dateStr}`] = decimalToHMS(earlyHours);
+          }
 
-            if (cellColor) {
-              const colIndex = 2 + allDates.indexOf(dateStr);
-              const cellAddr = XLSX.utils.encode_cell({ c: colIndex, r: rowIndex + 1 });
-              sheetStyles.push({ cell: cellAddr, style: { fill: { fgColor: { rgb: cellColor } } } });
-            }
-          });
+          if (cellColor) {
+            const colIndex = 2 + allDates.indexOf(dateStr);
+            const cellAddr = XLSX.utils.encode_cell({ c: colIndex, r: rowIndex + 1 });
+            sheetStyles.push({ cell: cellAddr, style: { fill: { fgColor: { rgb: cellColor } } } });
+          }
+        });
 
-          row["Total Working Days"] = totalWorkingDays;
-          row["Present Days"] = presentCount;
-          row["Half Days"] = halfDayCount;
+        // ── Final summary columns ───────────────────────────────
+        row["Total Working Days"] = totalWorkingDays;
+        row["Present Days"] = presentCount;
+        row["Half Days"] = halfDayCount;
+        row["Total Late"] = decimalToHMS(totalLateHours);     // ← NEW
+        row["Total Early"] = decimalToHMS(totalEarlyHours);   // ← recommended
 
-          exportRows.push(row);
-        })
-      );
+        exportRows.push(row);
+      })
+    );
 
-      const worksheet = XLSX.utils.json_to_sheet(exportRows, { skipHeader: false });
+    // Create worksheet
+    const worksheet = XLSX.utils.json_to_sheet(exportRows, { skipHeader: false });
 
-      // Adjust column widths
-      const baseCols = [{ wch: 22 }, { wch: 12 }];
-      const dateAndExtraCols = [];
-      allDates.forEach(() => {
-        dateAndExtraCols.push({ wch: 9 });   // Date status
-        dateAndExtraCols.push({ wch: 12 });  // Late_YYYY-MM-DD
-        dateAndExtraCols.push({ wch: 12 });  // Early_YYYY-MM-DD
-      });
-      const summaryCols = [{ wch: 18 }, { wch: 14 }, { wch: 12 }];
-      worksheet["!cols"] = [...baseCols, ...dateAndExtraCols, ...summaryCols];
+    // ── Improved column widths (including new summary columns) ──
+    const baseCols = [{ wch: 22 }, { wch: 14 }]; // Name + ID
+    const dateCols = [];
+    allDates.forEach(() => {
+      dateCols.push({ wch: 9 });   // Status (P/A/H/SUN/SAT/HOL)
+      dateCols.push({ wch: 12 });  // Late_YYYY-MM-DD
+      dateCols.push({ wch: 12 });  // Early_YYYY-MM-DD
+    });
+    const summaryCols = [
+      { wch: 18 },  // Total Working Days
+      { wch: 14 },  // Present Days
+      { wch: 12 },  // Half Days
+      { wch: 14 },  // Total Late
+      { wch: 14 },  // Total Early
+    ];
 
-      // Apply colors
-      sheetStyles.forEach(({ cell, style }) => {
-        if (!worksheet[cell]) worksheet[cell] = {};
-        if (!worksheet[cell].s) worksheet[cell].s = {};
-        worksheet[cell].s.fill = style.fill;
-      });
+    worksheet["!cols"] = [...baseCols, ...dateCols, ...summaryCols];
 
-      // Bold header
-      const range = XLSX.utils.decode_range(worksheet["!ref"]);
-      for (let C = range.s.c; C <= range.e.c; ++C) {
-        const cell = worksheet[XLSX.utils.encode_cell({ c: C, r: 0 })];
-        if (cell) {
-          cell.s = { ...cell.s, font: { bold: true }, alignment: { horizontal: "center" } };
-        }
+    // Apply colors & bold header (your existing code)
+    sheetStyles.forEach(({ cell, style }) => {
+      if (!worksheet[cell]) worksheet[cell] = {};
+      if (!worksheet[cell].s) worksheet[cell].s = {};
+      worksheet[cell].s.fill = style.fill;
+    });
+
+    const range = XLSX.utils.decode_range(worksheet["!ref"]);
+    for (let C = range.s.c; C <= range.e.c; ++C) {
+      const cell = worksheet[XLSX.utils.encode_cell({ c: C, r: 0 })];
+      if (cell) {
+        cell.s = { ...cell.s, font: { bold: true }, alignment: { horizontal: "center" } };
       }
-
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Attendance");
-
-      const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
-      const blob = new Blob([buffer], { type: "application/octet-stream" });
-      const fileName = `${selectedBranch}_Attendance_${fromDate}_to_${toDate}.xlsx`;
-
-      saveAs(blob, fileName);
-    } catch (err) {
-      console.error("Export failed:", err);
-      alert("Failed to generate export. Check console.");
-    } finally {
-      setLoading(false);
     }
-  };
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Attendance");
+    const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+    const blob = new Blob([buffer], { type: "application/octet-stream" });
+    const fileName = `${selectedBranch}_Attendance_${fromDate}_to_${toDate}.xlsx`;
+    saveAs(blob, fileName);
+  } catch (err) {
+    console.error("Export failed:", err);
+    alert("Failed to generate export. Check console.");
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <div className="admin-dashboard">
